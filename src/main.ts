@@ -12,7 +12,7 @@ async function bootstrap() {
     allowedHeaders: 'Content-Type,Authorization',
 
   });
-  await app.listen(7000);
+  await app.listen(8008);
   app.useWebSocketAdapter(new IoAdapter(app));
 
 }
