@@ -6,7 +6,7 @@ export const getDatabaseConfig = (configService: ConfigService): TypeOrmModuleOp
   host: configService.get<string>('DB_HOST', 'localhost'),
   port: configService.get<number>('DB_PORT', 3306),
   username: configService.get<string>('DB_USER', 'root'),
-  password: configService.get<string>('DB_PASSWORD', '22092002'),
+  password: configService.get<string>('DB_PASSWORD', '0'),
   database: configService.get<string>('DB_NAME', 'camera_db'),
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
   synchronize: true,
