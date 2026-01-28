@@ -290,7 +290,7 @@ export class PiService {
 
         try {
             const res = await axios.get(
-                `http://${targetIp}:8000/get-list-cameras`,
+                `http://${targetIp}:8000/api/get-list-cameras`,
                 { timeout: 5000 }
             );
 
