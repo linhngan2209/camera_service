@@ -23,7 +23,7 @@ export class OrangePiEntity {
     tailscaleIp: string;
 
     @Column({ name: 'hardware_id', unique: true })
-    hardwareId: string;
+    hardwareId: number;
 
     @Column({
         type: 'enum',

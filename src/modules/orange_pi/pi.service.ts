@@ -23,11 +23,10 @@ export class PiService {
 
     async createPi(data: {
         name: string;
-        hardwareId: string;
+        hardwareId: number;
         tailscaleIp?: string;
         domain?: string;
     }) {
-        // Kiểm tra hardwareId đã tồn tại chưa
         const existing = await this.piRepo.findOne({
             where: { hardwareId: data.hardwareId }
         });
@@ -47,7 +46,7 @@ export class PiService {
         return await this.piRepo.save(pi);
     }
 
-    async getPiByHardwareId(hardwareId: string) {
+    async getPiByHardwareId(hardwareId: number) {
         const pi = await this.piRepo.findOne({
             where: { hardwareId },
             relations: ['cameras'],
@@ -60,7 +59,7 @@ export class PiService {
         return pi;
     }
 
-    async updatePiStatus(hardwareId: string, status: 'online' | 'offline') {
+    async updatePiStatus(hardwareId: number, status: 'online' | 'offline') {
         const pi = await this.getPiByHardwareId(hardwareId);
 
         pi.status = status;
@@ -76,7 +75,7 @@ export class PiService {
         };
     }
 
-    async getPiCameras(hardwareId: string) {
+    async getPiCameras(hardwareId: number) {
         const pi = await this.getPiByHardwareId(hardwareId);
         return pi.cameras;
     }
@@ -121,7 +120,7 @@ export class PiService {
         return keys.length;
     }
 
-    async watchPi(hardwareId: string, viewerId: string) {
+    async watchPi(hardwareId: number, viewerId: string) {
         const pi = await this.getPiByHardwareId(hardwareId);
 
         // Kiểm tra Pi có online không
@@ -182,7 +181,7 @@ export class PiService {
         };
     }
 
-    async stopPi(hardwareId: string, viewerId: string) {
+    async stopPi(hardwareId: number, viewerId: string) {
         const pi = await this.getPiByHardwareId(hardwareId);
 
         const viewerKey = this.getViewerKey(pi.id, viewerId);
@@ -206,7 +205,7 @@ export class PiService {
         };
     }
 
-    async getPiViewers(hardwareId: string) {
+    async getPiViewers(hardwareId: number) {
         const pi = await this.getPiByHardwareId(hardwareId);
 
         const pattern = `pi:${pi.id}:viewer:*`;
@@ -240,7 +239,7 @@ export class PiService {
     // ==================== ADDITIONAL METHODS ====================
 
     // For heartbeat với viewerId (nếu cần)
-    async heartbeatWithViewer(hardwareId: string, viewerId: string) {
+    async heartbeatWithViewer(hardwareId: number, viewerId: string) {
         const pi = await this.getPiByHardwareId(hardwareId);
 
         const viewerKey = this.getViewerKey(pi.id, viewerId);
