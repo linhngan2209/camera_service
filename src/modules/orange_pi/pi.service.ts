@@ -270,14 +270,6 @@ export class PiService {
         };
     }
 
-    async heartbeat(hardwareId: string) {
-        const pi = await this.piRepo.findOne({ where: { hardwareId } });
-        if (!pi) return;
-
-        pi.status = 'online';
-        pi.lastSeen = new Date();
-        await this.piRepo.save(pi);
-    }
 
     async reloadFromPi(piId: string) {
         const pi = await this.piRepo.findOne({
@@ -356,6 +348,32 @@ export class PiService {
                 `Lỗi: ${error.message}`
             );
         }
+    }
+    async register(piId: string) {
+        await this.piRepo.update(
+            { id: piId },
+            {
+                status: 'online',
+                lastSeen: new Date(),
+            },
+        );
+    }
+
+    async heartbeat(piId: string) {
+        await this.piRepo.update(
+            { id: piId },
+            {
+                status: 'online',
+                lastSeen: new Date(),
+            },
+        );
+    }
+
+    async offline(piId: string) {
+        await this.piRepo.update(
+            { id: piId },
+            { status: 'offline' },
+        );
     }
 
 }

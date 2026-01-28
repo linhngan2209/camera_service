@@ -1,33 +1,61 @@
 import {
   WebSocketGateway,
   WebSocketServer,
-  SubscribeMessage,
-  MessageBody,
-  ConnectedSocket,
+  OnGatewayConnection,
 } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
+import { Server, WebSocket } from 'ws';
 import { PiService } from './pi.service';
 
 @WebSocketGateway({
-  cors: {
-    origin: '*',
-  },
+  path: '/ws/pi',
+  cors: { origin: '*' },
 })
-export class PiGateway {
+export class PiGateway implements OnGatewayConnection {
   @WebSocketServer()
   server: Server;
 
   constructor(private readonly piService: PiService) {}
 
-  @SubscribeMessage('PING')
-  async handlePing(
-    @MessageBody() data: { hardwareId: string },
-    @ConnectedSocket() client: Socket,
-  ) {
-    if (!data?.hardwareId) return;
+  handleConnection(client: WebSocket) {
 
-    await this.piService.heartbeat(data.hardwareId);
+    let piId: string | null = null;
 
-    client.emit('PONG');
+    client.on('message', async (raw: Buffer) => {
+      try {
+        const data = JSON.parse(raw.toString());
+
+        if (data.type === 'register') {
+          piId = data.id;
+          if (piId) {
+            await this.piService.register(piId);
+            console.log(`📡 Pi registered: ${piId}`);
+          }
+        }
+
+        if (data.type === 'PING') {
+          if (!piId && data.pi_id) {
+            piId = data.pi_id; 
+          }
+
+          if (!piId) return;
+
+          await this.piService.heartbeat(piId);
+
+          client.send(
+            JSON.stringify({
+              type: 'PONG',
+            }),
+          );
+        }
+      } catch (e) {
+      }
+    });
+
+    client.on('close', async () => {
+
+      if (piId) {
+        await this.piService.offline(piId);
+      }
+    });
   }
 }
