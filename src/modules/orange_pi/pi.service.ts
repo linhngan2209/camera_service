@@ -1,7 +1,6 @@
-import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import Redis from 'ioredis';
 import { CameraEntity } from 'src/entities/camera.entity';
 import { OrangePiEntity } from 'src/entities/orange_pi.entity';
 import axios from 'axios';
@@ -14,12 +13,74 @@ export class PiService {
 
         @InjectRepository(CameraEntity)
         private readonly cameraRepo: Repository<CameraEntity>,
-
-        @Inject('REDIS_SESSION')
-        private readonly redis: Redis,
     ) { }
 
     // ==================== PI MANAGEMENT ====================
+
+    async getAllPis() {
+        const pis = await this.piRepo.find({
+            relations: ['cameras'],
+            order: {
+                createdAt: 'DESC'
+            }
+        });
+
+        return {
+            success: true,
+            total: pis.length,
+            pis: pis.map(pi => ({
+                id: pi.id,
+                name: pi.name,
+                hardwareId: pi.hardwareId,
+                tailscaleIp: pi.tailscaleIp,
+                domain: pi.domain,
+                status: pi.status,
+                lastSeen: pi.lastSeen,
+                createdAt: pi.createdAt,
+                cameras: pi.cameras ? pi.cameras.map(cam => ({
+                    id: cam.id,
+                    name: cam.name,
+                    pathMain: cam.pathMain,
+                    pathSub: cam.pathSub,
+                    createdAt: cam.createdAt,
+                })) : [],
+            })),
+            timestamp: new Date().toISOString(),
+        };
+    }
+
+    async getPiById(id: string) {
+        const pi = await this.piRepo.findOne({
+            where: { id },
+            relations: ['cameras'],
+        });
+
+        if (!pi) {
+            throw new NotFoundException(`Pi with ID '${id}' not found`);
+        }
+
+        return {
+            success: true,
+            pi: {
+                id: pi.id,
+                name: pi.name,
+                hardwareId: pi.hardwareId,
+                tailscaleIp: pi.tailscaleIp,
+                domain: pi.domain,
+                status: pi.status,
+                lastSeen: pi.lastSeen,
+                createdAt: pi.createdAt,
+                cameras: pi.cameras ? pi.cameras.map(cam => ({
+                    id: cam.id,
+                    name: cam.name,
+                    pathMain: cam.pathMain,
+                    pathSub: cam.pathSub,
+                    createdAt: cam.createdAt,
+                })) : [],
+            },
+            timestamp: new Date().toISOString(),
+        };
+    }
 
     async createPi(data: {
         name: string;
@@ -32,7 +93,7 @@ export class PiService {
         });
 
         if (existing) {
-            throw new BadRequestException(`Pi với hardwareId '${data.hardwareId}' đã tồn tại`);
+            throw new BadRequestException(`Pi with hardwareId '${data.hardwareId}' already exists`);
         }
 
         const pi = this.piRepo.create({
@@ -43,7 +104,22 @@ export class PiService {
             status: 'offline',
         });
 
-        return await this.piRepo.save(pi);
+        const savedPi = await this.piRepo.save(pi);
+
+        return {
+            success: true,
+            message: 'Pi created successfully',
+            pi: {
+                id: savedPi.id,
+                name: savedPi.name,
+                hardwareId: savedPi.hardwareId,
+                tailscaleIp: savedPi.tailscaleIp,
+                domain: savedPi.domain,
+                status: savedPi.status,
+                createdAt: savedPi.createdAt,
+            },
+            timestamp: new Date().toISOString(),
+        };
     }
 
     async getPiByHardwareId(hardwareId: number) {
@@ -53,14 +129,72 @@ export class PiService {
         });
 
         if (!pi) {
-            throw new NotFoundException(`Pi với hardwareId '${hardwareId}' không tồn tại`);
+            throw new NotFoundException(`Pi with hardwareId '${hardwareId}' not found`);
         }
 
-        return pi;
+        return {
+            success: true,
+            pi: {
+                id: pi.id,
+                name: pi.name,
+                hardwareId: pi.hardwareId,
+                tailscaleIp: pi.tailscaleIp,
+                domain: pi.domain,
+                status: pi.status,
+                lastSeen: pi.lastSeen,
+                cameras: pi.cameras ? pi.cameras.map(cam => ({
+                    id: cam.id,
+                    name: cam.name,
+                    pathMain: cam.pathMain,
+                    pathSub: cam.pathSub,
+                })) : [],
+            },
+            timestamp: new Date().toISOString(),
+        };
+    }
+
+    async updatePi(id: string, data: {
+        name?: string;
+        tailscaleIp?: string;
+        domain?: string;
+    }) {
+        const pi = await this.piRepo.findOne({ where: { id } });
+
+        if (!pi) {
+            throw new NotFoundException(`Pi with ID '${id}' not found`);
+        }
+
+        // Update fields if provided
+        if (data.name !== undefined) pi.name = data.name;
+        if (data.tailscaleIp !== undefined) pi.tailscaleIp = data.tailscaleIp;
+        if (data.domain !== undefined) pi.domain = data.domain;
+
+        const updatedPi = await this.piRepo.save(pi);
+
+        return {
+            success: true,
+            message: 'Pi updated successfully',
+            pi: {
+                id: updatedPi.id,
+                name: updatedPi.name,
+                hardwareId: updatedPi.hardwareId,
+                tailscaleIp: updatedPi.tailscaleIp,
+                domain: updatedPi.domain,
+                status: updatedPi.status,
+            },
+            timestamp: new Date().toISOString(),
+        };
     }
 
     async updatePiStatus(hardwareId: number, status: 'online' | 'offline') {
-        const pi = await this.getPiByHardwareId(hardwareId);
+        const pi = await this.piRepo.findOne({
+            where: { hardwareId },
+            relations: ['cameras'],
+        });
+
+        if (!pi) {
+            throw new NotFoundException(`Pi with hardwareId '${hardwareId}' not found`);
+        }
 
         pi.status = status;
         pi.lastSeen = new Date();
@@ -69,35 +203,96 @@ export class PiService {
 
         return {
             success: true,
-            hardwareId,
-            status,
-            lastSeen: pi.lastSeen,
+            message: `Pi status updated to '${status}'`,
+            pi: {
+                hardwareId: pi.hardwareId,
+                name: pi.name,
+                status: pi.status,
+                lastSeen: pi.lastSeen,
+            },
+            timestamp: new Date().toISOString(),
         };
     }
 
     async getPiCameras(hardwareId: number) {
-        const pi = await this.getPiByHardwareId(hardwareId);
-        return pi.cameras;
+        const pi = await this.piRepo.findOne({
+            where: { hardwareId },
+            relations: ['cameras'],
+        });
+
+        if (!pi) {
+            throw new NotFoundException(`Pi with hardwareId '${hardwareId}' not found`);
+        }
+
+        return {
+            success: true,
+            pi: {
+                id: pi.id,
+                name: pi.name,
+                hardwareId: pi.hardwareId,
+                status: pi.status,
+            },
+            cameras: pi.cameras ? pi.cameras.map(cam => ({
+                id: cam.id,
+                name: cam.name,
+                pathMain: cam.pathMain,
+                pathSub: cam.pathSub,
+                createdAt: cam.createdAt,
+            })) : [],
+            total: pi.cameras ? pi.cameras.length : 0,
+            timestamp: new Date().toISOString(),
+        };
     }
+
+    async deletePi(id: string) {
+        const pi = await this.piRepo.findOne({
+            where: { id },
+            relations: ['cameras'],
+        });
+
+        if (!pi) {
+            throw new NotFoundException(`Pi with ID '${id}' not found`);
+        }
+
+        // Delete all cameras first (if any)
+        if (pi.cameras && pi.cameras.length > 0) {
+            await this.cameraRepo.remove(pi.cameras);
+        }
+
+        // Delete Pi
+        await this.piRepo.remove(pi);
+
+        return {
+            success: true,
+            message: 'Pi and all its cameras deleted successfully',
+            deletedPi: {
+                id: pi.id,
+                name: pi.name,
+                hardwareId: pi.hardwareId,
+            },
+            deletedCameras: pi.cameras ? pi.cameras.length : 0,
+            timestamp: new Date().toISOString(),
+        };
+    }
+
+    // ==================== CAMERA MANAGEMENT ====================
 
     async addCamera(piId: string, data: {
         name: string;
         pathMain: string;
         pathSub?: string;
     }) {
-        // Kiểm tra Pi tồn tại
         const pi = await this.piRepo.findOne({ where: { id: piId } });
         if (!pi) {
-            throw new NotFoundException(`Pi với ID '${piId}' không tồn tại`);
+            throw new NotFoundException(`Pi with ID '${piId}' not found`);
         }
 
-        // Kiểm tra pathMain đã tồn tại chưa
         const existingCamera = await this.cameraRepo.findOne({
             where: { pathMain: data.pathMain },
         });
 
         if (existingCamera) {
-            throw new BadRequestException(`Camera với pathMain '${data.pathMain}' đã tồn tại`);
+            throw new BadRequestException(`Camera with pathMain '${data.pathMain}' already exists`);
         }
 
         const camera = this.cameraRepo.create({
@@ -105,170 +300,53 @@ export class PiService {
             pi: pi,
         });
 
-        return await this.cameraRepo.save(camera);
-    }
-
-    // ==================== VIEWER SESSION (REDIS) ====================
-
-    private getViewerKey(piId: string, viewerId: string): string {
-        return `pi:${piId}:viewer:${viewerId}`;
-    }
-
-    private async countViewers(piId: string): Promise<number> {
-        const pattern = `pi:${piId}:viewer:*`;
-        const keys = await this.redis.keys(pattern);
-        return keys.length;
-    }
-
-    async watchPi(hardwareId: number, viewerId: string) {
-        const pi = await this.getPiByHardwareId(hardwareId);
-
-        // Kiểm tra Pi có online không
-        if (pi.status !== 'online') {
-            throw new BadRequestException(`Pi '${pi.name}' đang offline`);
-        }
-
-        // Kiểm tra Pi có camera nào không
-        if (pi.cameras.length === 0) {
-            throw new BadRequestException(`Pi '${pi.name}' chưa có camera nào`);
-        }
-
-        // Thêm viewer vào Redis với TTL 30s
-        const viewerKey = this.getViewerKey(pi.id, viewerId);
-        await this.redis.setex(viewerKey, 30, 'active');
-
-        // Lấy số viewer hiện tại
-        const viewerCount = await this.countViewers(pi.id);
-
-        // Tạo stream URLs
-        const mediamtxHost = process.env.MEDIAMTX_HOST || 'localhost';
-        const mediamtxPort = process.env.MEDIAMTX_WEBRTC_PORT || '8889';
+        const savedCamera = await this.cameraRepo.save(camera);
 
         return {
             success: true,
-            pi: {
-                id: pi.id,
-                hardwareId: pi.hardwareId,
-                name: pi.name,
-                status: pi.status,
-                tailscaleIp: pi.tailscaleIp,
-                domain: pi.domain,
-            },
-            viewer: {
-                id: viewerId,
-                sessionStarted: new Date().toISOString(),
-                ttl: 30,
-            },
-            cameras: pi.cameras.map(cam => ({
-                id: cam.id,
-                name: cam.name,
-                streams: {
-                    main: {
-                        path: cam.pathMain,
-                        url: `wss://${mediamtxHost}:${mediamtxPort}/${cam.pathMain}`,
-                    },
-                    sub: cam.pathSub ? {
-                        path: cam.pathSub,
-                        url: `wss://${mediamtxHost}:${mediamtxPort}/${cam.pathSub}`,
-                    } : null,
-                },
-            })),
-            statistics: {
-                activeViewers: viewerCount,
-                totalCameras: pi.cameras.length,
+            message: 'Camera added successfully',
+            camera: {
+                id: savedCamera.id,
+                name: savedCamera.name,
+                pathMain: savedCamera.pathMain,
+                pathSub: savedCamera.pathSub,
+                piId: pi.id,
+                piName: pi.name,
+                createdAt: savedCamera.createdAt,
             },
             timestamp: new Date().toISOString(),
         };
     }
 
-    async stopPi(hardwareId: number, viewerId: string) {
-        const pi = await this.getPiByHardwareId(hardwareId);
+    async deleteCamera(cameraId: string) {
+        const camera = await this.cameraRepo.findOne({
+            where: { id: cameraId },
+            relations: ['pi'],
+        });
 
-        const viewerKey = this.getViewerKey(pi.id, viewerId);
-
-        // Xóa viewer khỏi Redis
-        const deleted = await this.redis.del(viewerKey);
-
-        // Kiểm tra còn viewer nào không
-        const remainingViewers = await this.countViewers(pi.id);
-
-        return {
-            success: deleted > 0,
-            pi: {
-                id: pi.id,
-                hardwareId: pi.hardwareId,
-                name: pi.name,
-            },
-            viewerId,
-            remainingViewers,
-            timestamp: new Date().toISOString(),
-        };
-    }
-
-    async getPiViewers(hardwareId: number) {
-        const pi = await this.getPiByHardwareId(hardwareId);
-
-        const pattern = `pi:${pi.id}:viewer:*`;
-        const keys = await this.redis.keys(pattern);
-
-        const viewers = await Promise.all(
-            keys.map(async (key) => {
-                const viewerId = key.split(':')[3];
-                const ttl = await this.redis.ttl(key);
-
-                return {
-                    viewerId,
-                    ttl,
-                    expiresAt: new Date(Date.now() + ttl * 1000).toISOString(),
-                };
-            })
-        );
-
-        return {
-            pi: {
-                id: pi.id,
-                name: pi.name,
-                hardwareId: pi.hardwareId,
-            },
-            totalViewers: viewers.length,
-            viewers,
-            timestamp: new Date().toISOString(),
-        };
-    }
-
-    // ==================== ADDITIONAL METHODS ====================
-
-    // For heartbeat với viewerId (nếu cần)
-    async heartbeatWithViewer(hardwareId: number, viewerId: string) {
-        const pi = await this.getPiByHardwareId(hardwareId);
-
-        const viewerKey = this.getViewerKey(pi.id, viewerId);
-
-        // Kiểm tra viewer có tồn tại không
-        const exists = await this.redis.exists(viewerKey);
-        if (!exists) {
-            throw new NotFoundException(`Viewer '${viewerId}' không đang xem Pi này hoặc đã hết hạn`);
+        if (!camera) {
+            throw new NotFoundException(`Camera with ID '${cameraId}' not found`);
         }
 
-        // Reset TTL về 30s
-        await this.redis.expire(viewerKey, 30);
+        const cameraInfo = {
+            id: camera.id,
+            name: camera.name,
+            pathMain: camera.pathMain,
+            piId: camera.pi.id,
+            piName: camera.pi.name,
+        };
 
-        const ttl = await this.redis.ttl(viewerKey);
+        await this.cameraRepo.remove(camera);
 
         return {
             success: true,
-            viewerId,
-            pi: {
-                id: pi.id,
-                name: pi.name,
-                hardwareId: pi.hardwareId,
-            },
-            ttl,
-            expiresAt: new Date(Date.now() + ttl * 1000).toISOString(),
+            message: 'Camera deleted successfully',
+            deletedCamera: cameraInfo,
             timestamp: new Date().toISOString(),
         };
     }
 
+    // ==================== SYNC FROM PI ====================
 
     async reloadFromPi(piId: string) {
         const pi = await this.piRepo.findOne({
@@ -277,14 +355,14 @@ export class PiService {
         });
 
         if (!pi) {
-            throw new NotFoundException(`Pi với ID '${piId}' không tồn tại`);
+            throw new NotFoundException(`Pi with ID '${piId}' not found`);
         }
 
         const targetIp = pi.tailscaleIp || pi.domain;
 
         if (!targetIp) {
             throw new BadRequestException(
-                `Pi '${pi.name}' chưa có Tailscale IP hoặc domain`
+                `Pi '${pi.name}' has no Tailscale IP or domain configured`
             );
         }
 
@@ -295,18 +373,24 @@ export class PiService {
             );
 
             const status = res.data;
+
+            // Update Pi status
+            pi.status = 'online';
+            pi.lastSeen = new Date();
             await this.piRepo.save(pi);
 
+            // Delete old cameras (if any)
             if (pi.cameras && pi.cameras.length > 0) {
                 await this.cameraRepo.remove(pi.cameras);
             }
 
             const newCameras: CameraEntity[] = [];
 
+            // Create new cameras from received data
             if (status.cameras && Array.isArray(status.cameras)) {
                 for (const camData of status.cameras) {
                     const camera = this.cameraRepo.create({
-                        name: camData.name,
+                        name: camData.name || `Camera ${camData.id}`,
                         pathMain: `/${camData.id}`,
                         pathSub: `/${camData.id}_sub`,
                         pi: pi,
@@ -319,6 +403,7 @@ export class PiService {
 
             return {
                 success: true,
+                message: 'Cameras synced from Pi successfully',
                 pi: {
                     id: pi.id,
                     name: pi.name,
@@ -328,6 +413,7 @@ export class PiService {
                 },
                 cameras: {
                     total: newCameras.length,
+                    synced: newCameras.length,
                     list: newCameras.map(cam => ({
                         id: cam.id,
                         name: cam.name,
@@ -339,15 +425,19 @@ export class PiService {
             };
 
         } catch (error) {
+            // Mark Pi as offline if connection fails
             pi.status = 'offline';
             await this.piRepo.save(pi);
 
             throw new BadRequestException(
-                `Không thể kết nối tới Pi '${pi.name}' tại ${targetIp}:8000. ` +
-                `Lỗi: ${error.message}`
+                `Cannot connect to Pi '${pi.name}' at ${targetIp}:8000. ` +
+                `Error: ${error.message}`
             );
         }
     }
+
+    // ==================== HELPER METHODS ====================
+
     async register(piId: string) {
         await this.piRepo.update(
             { id: piId },
@@ -374,5 +464,4 @@ export class PiService {
             { status: 'offline' },
         );
     }
-
 }

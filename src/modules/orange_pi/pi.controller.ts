@@ -6,7 +6,6 @@ import {
     Delete,
     Body,
     Param,
-    Query,
 } from '@nestjs/common';
 import { PiService } from './pi.service';
 
@@ -27,19 +26,27 @@ export class PiController {
         return this.piService.addCamera(piId, body);
     }
 
+    @Get()
+    getAll() {
+        return this.piService.getAllPis();
+    }
+
+    @Get(':id')
+    getById(@Param('id') id: string) {
+        return this.piService.getPiById(id);
+    }
+
     @Get('by-hardware/:hardwareId')
     getByHardwareId(@Param('hardwareId') hardwareId: number) {
         return this.piService.getPiByHardwareId(hardwareId);
     }
 
-    @Post('watch')
-    watch(@Body() body: { hardwareId: number; viewerId: string }) {
-        return this.piService.watchPi(body.hardwareId, body.viewerId);
-    }
-
-    @Post('stop')
-    stop(@Body() body: { hardwareId: number; viewerId: string }) {
-        return this.piService.stopPi(body.hardwareId, body.viewerId);
+    @Put(':id')
+    update(
+        @Param('id') id: string,
+        @Body() body: { name?: string; tailscaleIp?: string; domain?: string }
+    ) {
+        return this.piService.updatePi(id, body);
     }
 
     @Put(':hardwareId/status')
@@ -55,30 +62,14 @@ export class PiController {
         return this.piService.getPiCameras(+hardwareId);
     }
 
-    @Get(':hardwareId/viewers')
-    getViewers(@Param('hardwareId') hardwareId: number) {
-        return this.piService.getPiViewers(hardwareId);
+    @Delete(':id')
+    delete(@Param('id') id: string) {
+        return this.piService.deletePi(id);
     }
 
-    @Post(':hardwareId/heartbeat')
-    heartbeat(@Param('hardwareId') hardwareId: number) {
-        return this.piService.updatePiStatus(hardwareId, 'online');
-    }
-
-    @Post(':hardwareId/heartbeat-viewer/:viewerId')
-    heartbeatWithViewer(
-        @Param('hardwareId') hardwareId: number,
-        @Param('viewerId') viewerId: string,
-    ) {
-        return this.piService.heartbeatWithViewer(hardwareId, viewerId);
-    }
-
-    @Delete('session/:hardwareId/:viewerId')
-    deleteSession(
-        @Param('hardwareId') hardwareId: number,
-        @Param('viewerId') viewerId: string,
-    ) {
-        return this.piService.stopPi(hardwareId, viewerId);
+    @Delete('camera/:cameraId')
+    deleteCamera(@Param('cameraId') cameraId: string) {
+        return this.piService.deleteCamera(cameraId);
     }
 
     @Post(':id/reload')
