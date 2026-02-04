@@ -6,6 +6,7 @@ import { PiService } from './pi.service';
 import { PiController } from './pi.controller';
 import { RedisModule } from 'src/redis/redis.module';
 import { PiGateway } from './pi.gateway';
+import { MediaMtxModule } from '../mediamtx/mediamtx.module';
 
 
 @Module({
@@ -15,6 +16,7 @@ import { PiGateway } from './pi.gateway';
       CameraEntity,
     ]),
     RedisModule,
+    MediaMtxModule,
   ],
   providers: [PiService,  PiGateway,],
   controllers: [PiController],

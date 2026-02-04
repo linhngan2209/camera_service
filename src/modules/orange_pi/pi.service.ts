@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { CameraEntity } from 'src/entities/camera.entity';
 import { OrangePiEntity } from 'src/entities/orange_pi.entity';
 import axios from 'axios';
+import { MediaMtxService } from '../mediamtx/mediamtx.service';
 
 @Injectable()
 export class PiService {
@@ -13,6 +14,8 @@ export class PiService {
 
         @InjectRepository(CameraEntity)
         private readonly cameraRepo: Repository<CameraEntity>,
+        private mediaMtxService: MediaMtxService,
+
     ) { }
 
     // ==================== PI MANAGEMENT ====================
@@ -349,6 +352,7 @@ export class PiService {
     // ==================== SYNC FROM PI ====================
 
     async reloadFromPi(piId: string) {
+        // 1. Lấy thông tin Pi
         const pi = await this.piRepo.findOne({
             where: { id: piId },
             relations: ['cameras'],
@@ -367,6 +371,7 @@ export class PiService {
         }
 
         try {
+            // 2. Gọi API lấy danh sách camera từ Pi
             const res = await axios.get(
                 `http://${targetIp}:8000/api/get-list-cameras`,
                 { timeout: 5000 }
@@ -374,21 +379,44 @@ export class PiService {
 
             const status = res.data;
 
-            // Update Pi status
+            // 3. Cập nhật trạng thái Pi
             pi.status = 'online';
             pi.lastSeen = new Date();
             await this.piRepo.save(pi);
 
-            // Delete old cameras (if any)
+            // 4. Thu thập IDs cameras cũ của Pi này (để xóa khỏi MediaMTX)
+            const oldCameraIds: string[] = [];
             if (pi.cameras && pi.cameras.length > 0) {
+                pi.cameras.forEach(cam => {
+                    // Lấy ID từ pathMain và pathSub
+                    // Ví dụ: pathMain = "/cam_192a" → "cam_192a"
+                    const mainId = cam.pathMain.replace('/', '');
+                    const subId = cam.pathSub.replace('/', '');
+                    oldCameraIds.push(mainId, subId);
+                });
+
+                // Xóa cameras cũ trong database
                 await this.cameraRepo.remove(pi.cameras);
             }
 
-            const newCameras: CameraEntity[] = [];
+            // 5. Xóa cameras cũ của Pi này khỏi MediaMTX
+            if (oldCameraIds.length > 0) {
+                const removedCount = await this.mediaMtxService.removeCamerasByIds(oldCameraIds);
+                console.log(`🗑️ Đã xóa ${removedCount} streams cũ của Pi ${pi.name} khỏi MediaMTX`);
+            }
 
-            // Create new cameras from received data
+            const newCameras: CameraEntity[] = [];
+            const camerasToAdd: Array<{
+                mainStreamId: string;
+                subStreamId: string;
+                piIp: string;
+                piPort: number;
+            }> = [];
+
+            // 6. Tạo cameras mới trong database và chuẩn bị thêm vào MediaMTX
             if (status.cameras && Array.isArray(status.cameras)) {
                 for (const camData of status.cameras) {
+                    // Lưu vào database
                     const camera = this.cameraRepo.create({
                         name: camData.name || `Camera ${camData.id}`,
                         pathMain: `/${camData.id}`,
@@ -398,8 +426,26 @@ export class PiService {
 
                     const saved = await this.cameraRepo.save(camera);
                     newCameras.push(saved);
+
+                    // Chuẩn bị thêm vào MediaMTX
+                    camerasToAdd.push({
+                        mainStreamId: camData.id,
+                        subStreamId: `${camData.id}_sub`,
+                        piIp: targetIp,
+                        piPort: 8554
+                    });
                 }
             }
+
+            // 7. Thêm TẤT CẢ cameras mới vào MediaMTX (batch)
+            let addedCount = 0;
+            if (camerasToAdd.length > 0) {
+                addedCount = await this.mediaMtxService.addCamerasBatch(camerasToAdd);
+                console.log(`✅ Đã thêm ${camerasToAdd.length} cameras của Pi ${pi.name} vào MediaMTX`);
+            }
+
+            // 8. Reload MediaMTX
+            const reloadResult = await this.mediaMtxService.reload();
 
             return {
                 success: true,
@@ -412,6 +458,7 @@ export class PiService {
                     lastSeen: pi.lastSeen,
                 },
                 cameras: {
+                    removed: oldCameraIds.length / 2, // Chia 2 vì có main + sub
                     total: newCameras.length,
                     synced: newCameras.length,
                     list: newCameras.map(cam => ({
@@ -421,11 +468,16 @@ export class PiService {
                         pathSub: cam.pathSub,
                     })),
                 },
+                mediamtx: {
+                    reloadMethod: reloadResult.method,
+                    reloadSuccess: reloadResult.success,
+                    message: reloadResult.message,
+                    streamsAdded: addedCount,
+                },
                 syncedAt: new Date().toISOString(),
             };
 
         } catch (error) {
-            // Mark Pi as offline if connection fails
             pi.status = 'offline';
             await this.piRepo.save(pi);
 
@@ -435,7 +487,6 @@ export class PiService {
             );
         }
     }
-
     // ==================== HELPER METHODS ====================
 
     async register(piId: string) {

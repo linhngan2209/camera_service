@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { getDatabaseConfig } from './config/database.config';
 import { PiModule } from './modules/orange_pi/pi.module';
+import { MediaMtxModule } from './modules/mediamtx/mediamtx.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { PiModule } from './modules/orange_pi/pi.module';
     }),
 
     PiModule,
+    MediaMtxModule,
   ],
 })
 export class AppModule { }
