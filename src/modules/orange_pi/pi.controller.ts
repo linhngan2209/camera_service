@@ -44,7 +44,7 @@ export class PiController {
     @Put(':id')
     update(
         @Param('id') id: string,
-        @Body() body: { name?: string; tailscaleIp?: string; domain?: string }
+        @Body() body: { name?: string; tailscaleIp?: string; domain?: string, hardwareId?: number },
     ) {
         return this.piService.updatePi(id, body);
     }

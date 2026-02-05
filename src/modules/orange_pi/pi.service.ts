@@ -160,6 +160,7 @@ export class PiService {
         name?: string;
         tailscaleIp?: string;
         domain?: string;
+        hardwareId?: number;
     }) {
         const pi = await this.piRepo.findOne({ where: { id } });
 
@@ -167,10 +168,18 @@ export class PiService {
             throw new NotFoundException(`Pi with ID '${id}' not found`);
         }
 
-        // Update fields if provided
         if (data.name !== undefined) pi.name = data.name;
         if (data.tailscaleIp !== undefined) pi.tailscaleIp = data.tailscaleIp;
         if (data.domain !== undefined) pi.domain = data.domain;
+        if (data.hardwareId !== undefined) {
+            const existing = await this.piRepo.findOne({
+                where: { hardwareId: data.hardwareId }
+            });
+            if (existing && existing.id !== id) {
+                throw new BadRequestException(`Pi with hardwareId '${data.hardwareId}' already exists`);
+            }
+            pi.hardwareId = data.hardwareId;
+        }
 
         const updatedPi = await this.piRepo.save(pi);
 
